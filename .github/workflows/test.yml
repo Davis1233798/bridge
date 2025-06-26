@@ -1,0 +1,117 @@
+name: 資料庫同步器測試
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    services:
+      # MariaDB 服務
+      mariadb:
+        image: mariadb:10.9
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: test
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+
+    steps:
+    - name: 檢出程式碼
+      uses: actions/checkout@v4
+
+    - name: 設定 Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: 安裝依賴
+      run: |
+        npm ci
+        npm run install-drivers
+
+    - name: 等待 MariaDB 準備就緒
+      run: |
+        timeout 60 sh -c 'until nc -z localhost 3306; do sleep 1; done'
+
+    - name: 建立測試環境配置
+      run: |
+        cat > .env.test << EOF
+        # 測試環境設定
+        NODE_ENV=test
+        LOG_LEVEL=error
+        
+        # 客戶端資料庫（本地 MariaDB 模擬）
+        CLIENT_DB_TYPE=mariadb
+        CLIENT_DB_HOST=localhost
+        CLIENT_DB_PORT=3306
+        CLIENT_DB_USER=root
+        CLIENT_DB_PASSWORD=root
+        CLIENT_DB_DATABASE=test
+        
+        # 伺服器端資料庫（同一個 MariaDB）
+        SERVER_DB_TYPE=mariadb
+        SERVER_DB_HOST=localhost
+        SERVER_DB_PORT=3306
+        SERVER_DB_USER=root
+        SERVER_DB_PASSWORD=root
+        SERVER_DB_DATABASE=test
+        
+        # 表格設定
+        CLIENT_TO_SERVER_LISTEN_TABLE=test_polling
+        CLIENT_TO_SERVER_SYNC_TABLE=test_syncing
+        SERVER_TO_CLIENT_LISTEN_TABLE=test_polling
+        SERVER_TO_CLIENT_SYNC_TABLE=test_syncing
+        
+        # 同步設定
+        SYNC_INTERVAL=30000
+        UPDATE_COLUMN=updated_at
+        BATCH_SIZE=1000
+        MAX_RETRY_ATTEMPTS=3
+        
+        # 快取設定
+        SCHEMA_CACHE_ENABLED=true
+        SCHEMA_CACHE_FILE=./cache/table_schemas.json
+        SCHEMA_CACHE_TTL=3600000
+        EOF
+
+    - name: 建立必要目錄
+      run: |
+        mkdir -p cache
+        mkdir -p logs
+        mkdir -p coverage
+
+    - name: 執行 CRUD 測試
+      env:
+        NODE_ENV: test
+      run: |
+        cp .env.test .env
+        npm run test:crud
+
+    - name: 執行單元測試
+      env:
+        NODE_ENV: test
+      run: |
+        cp .env.test .env
+        npm run test:coverage
+
+    - name: 上傳測試覆蓋率報告
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage/lcov.info
+        fail_ci_if_error: false
+
+    - name: 上傳測試結果
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: test-results
+        path: |
+          coverage/
+          logs/ 

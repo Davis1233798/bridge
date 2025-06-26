@@ -1,0 +1,42 @@
+# 依賴包
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# 環境變數檔案
+.env
+
+# 日誌檔案
+logs/
+*.log
+
+# 暫存檔案
+*.tmp
+*.temp
+
+# IDE 檔案
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 作業系統檔案
+.DS_Store
+Thumbs.db
+
+# 備份檔案
+*.bak
+*.backup
+
+# 資料庫檔案
+*.db
+*.sqlite
+
+# 測試覆蓋率報告
+coverage/
+.nyc_output/
+
+# 打包檔案
+dist/
+build/ 
