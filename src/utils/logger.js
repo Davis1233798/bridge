@@ -1,10 +1,29 @@
 const winston = require('winston');
 const path = require('path');
+require('winston-daily-rotate-file');
 
 /**
  * 日誌配置
  */
 const logLevel = process.env.LOG_LEVEL || 'info';
+
+// 建立日期格式的檔名
+const createDailyRotateTransport = (filename, level = null) => {
+  return new winston.transports.DailyRotateFile({
+    filename: path.join('logs', `${filename}-%DATE%.log`),
+    datePattern: 'YYYY-MM-DD',
+    zippedArchive: true,
+    maxSize: '20m',
+    maxFiles: '14d', // 保留14天
+    level: level,
+    format: winston.format.combine(
+      winston.format.timestamp({
+        format: 'YYYY-MM-DD HH:mm:ss'
+      }),
+      winston.format.json()
+    )
+  });
+};
 
 const logger = winston.createLogger({
   level: logLevel,
@@ -32,20 +51,17 @@ const logger = winston.createLogger({
       )
     }),
     
-    // 錯誤日誌檔案
-    new winston.transports.File({
-      filename: path.join('logs', 'error.log'),
-      level: 'error',
-      maxsize: 5242880, // 5MB
-      maxFiles: 5
-    }),
+    // 錯誤日誌檔案 (依日期分開)
+    createDailyRotateTransport('error', 'error'),
     
-    // 所有日誌檔案
-    new winston.transports.File({
-      filename: path.join('logs', 'combined.log'),
-      maxsize: 5242880, // 5MB
-      maxFiles: 10
-    })
+    // 所有日誌檔案 (依日期分開)
+    createDailyRotateTransport('combined'),
+    
+    // 連線日誌檔案 (依日期分開)
+    createDailyRotateTransport('connection'),
+    
+    // 同步日誌檔案 (依日期分開)
+    createDailyRotateTransport('sync')
   ]
 });
 
@@ -57,6 +73,51 @@ if (process.env.NODE_ENV !== 'production') {
     format: winston.format.simple()
   }));
 }
+
+/**
+ * 連線專用的日誌方法
+ */
+const connectionLogger = {
+  info: (message, meta = {}) => logger.info(message, { ...meta, category: 'connection' }),
+  error: (message, meta = {}) => logger.error(message, { ...meta, category: 'connection' }),
+  warn: (message, meta = {}) => logger.warn(message, { ...meta, category: 'connection' }),
+  debug: (message, meta = {}) => logger.debug(message, { ...meta, category: 'connection' }),
+  
+  // 連線成功
+  connectionSuccess: (dbType, config) => {
+    logger.info('資料庫連線成功', {
+      category: 'connection',
+      dbType,
+      host: config.host,
+      database: config.database,
+      timestamp: new Date().toISOString()
+    });
+  },
+  
+  // 連線失敗
+  connectionError: (dbType, config, error) => {
+    logger.error('資料庫連線失敗', {
+      category: 'connection',
+      dbType,
+      host: config.host,
+      database: config.database,
+      error: error.message,
+      stack: error.stack,
+      timestamp: new Date().toISOString()
+    });
+  },
+  
+  // 連線斷開
+  disconnection: (dbType, config) => {
+    logger.info('資料庫連線已斷開', {
+      category: 'connection',
+      dbType,
+      host: config.host,
+      database: config.database,
+      timestamp: new Date().toISOString()
+    });
+  }
+};
 
 /**
  * 同步專用的日誌方法
@@ -100,4 +161,4 @@ const syncLogger = {
   }
 };
 
-module.exports = { logger, syncLogger }; 
+module.exports = { logger, syncLogger, connectionLogger }; 

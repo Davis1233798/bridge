@@ -21,7 +21,9 @@
     "test:interactive": "node scripts/run-tests.js",
     "sync:once": "node src/syncer.js --once",
     "sync:test": "node scripts/test-sync.js",
-    "db:setup": "node scripts/setup-db.js"
+    "db:setup": "node scripts/setup-db.js",
+    "check:connection": "node scripts/check-connection.js check",
+    "monitor:connection": "node scripts/check-connection.js monitor"
   },
   "keywords": [
     "database",
@@ -37,10 +39,11 @@
   "author": "Database Syncer Team",
   "license": "MIT",
   "dependencies": {
-    "dotenv": "^16.5.0",
-    "winston": "^3.17.0",
     "cron": "^3.1.6",
-    "lodash": "^4.17.21"
+    "dotenv": "^16.6.0",
+    "lodash": "^4.17.21",
+    "winston": "^3.17.0",
+    "winston-daily-rotate-file": "^5.0.0"
   },
   "optionalDependencies": {
     "mariadb": "^3.3.2",

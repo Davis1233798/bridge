@@ -1,5 +1,6 @@
 const sql = require('mssql');
 const BaseAdapter = require('./BaseAdapter');
+const { connectionLogger } = require('../utils/logger');
 
 /**
  * MSSQL 資料庫適配器
@@ -12,12 +13,51 @@ class MSSQLAdapter extends BaseAdapter {
 
   async connect() {
     try {
-      this.pool = await sql.connect(this.config);
-      console.log('MSSQL 連接成功');
+      connectionLogger.info('嘗試連線到 MSSQL', {
+        host: this.config.server,
+        port: this.config.port,
+        database: this.config.database
+      });
+
+      // 增加連線超時處理
+      const connectWithTimeout = async () => {
+        // 確保配置有適當的超時設定
+        const configWithTimeout = {
+          ...this.config,
+          connectionTimeout: this.config.connectionTimeout || 15000, // 15秒連線超時
+          requestTimeout: this.config.requestTimeout || 15000, // 15秒請求超時
+          pool: {
+            ...this.config.pool,
+            acquireTimeoutMillis: this.config.pool?.acquireTimeoutMillis || 15000
+          }
+        };
+
+        return await Promise.race([
+          sql.connect(configWithTimeout),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('MSSQL 連線超時 (20秒)')), 20000)
+          )
+        ]);
+      };
+
+      this.pool = await connectWithTimeout();
+      
+      connectionLogger.connectionSuccess('MSSQL', this.config);
       await this.createSyncStatusTable();
       return this.pool;
     } catch (error) {
-      console.error('MSSQL 連接失敗:', error);
+      connectionLogger.connectionError('MSSQL', this.config, error);
+      
+      // 清理可能的部分連線
+      if (this.pool) {
+        try {
+          await this.pool.close();
+        } catch (cleanupError) {
+          connectionLogger.warn('清理 MSSQL 連線池時發生錯誤', { error: cleanupError.message });
+        }
+        this.pool = null;
+      }
+      
       throw error;
     }
   }
@@ -26,7 +66,7 @@ class MSSQLAdapter extends BaseAdapter {
     if (this.pool) {
       await this.pool.close();
       this.pool = null;
-      console.log('MSSQL 連接已關閉');
+      connectionLogger.disconnection('MSSQL', this.config);
     }
   }
 

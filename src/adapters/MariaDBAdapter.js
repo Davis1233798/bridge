@@ -1,5 +1,6 @@
 const mariadb = require('mariadb');
 const BaseAdapter = require('./BaseAdapter');
+const { connectionLogger } = require('../utils/logger');
 
 /**
  * MariaDB 資料庫適配器
@@ -12,27 +13,67 @@ class MariaDBAdapter extends BaseAdapter {
 
   async connect() {
     try {
-      this.pool = mariadb.createPool({
+      connectionLogger.info('嘗試連線到 MariaDB', {
         host: this.config.host,
         port: this.config.port,
-        user: this.config.user,
-        password: this.config.password,
-        database: this.config.database,
-        connectionLimit: this.config.connectionLimit || 10,
-        acquireTimeout: this.config.acquireTimeout || 60000,
-        timeout: this.config.timeout || 60000,
-        charset: this.config.charset || 'utf8mb4',
-        timezone: this.config.timezone || 'local'
+        database: this.config.database
       });
+
+      // 增加連線超時處理
+      const connectWithTimeout = async () => {
+        const pool = mariadb.createPool({
+          host: this.config.host,
+          port: this.config.port,
+          user: this.config.user,
+          password: this.config.password,
+          database: this.config.database,
+          connectionLimit: this.config.connectionLimit || 10,
+          acquireTimeout: this.config.acquireTimeout || 10000, // 減少到10秒
+          timeout: this.config.timeout || 10000, // 減少到10秒
+          connectTimeout: this.config.connectTimeout || 10000, // 新增連線超時
+          socketTimeout: this.config.socketTimeout || 10000, // 新增 socket 超時
+          charset: this.config.charset || 'utf8mb4',
+          timezone: this.config.timezone || 'local'
+        });
+
+        // 測試連接 - 增加超時控制
+        const testConnection = async () => {
+          let conn;
+          try {
+            conn = await pool.getConnection();
+            await conn.ping(); // 使用 ping 測試連線
+            return pool;
+          } finally {
+            if (conn) await conn.release();
+          }
+        };
+
+        return await Promise.race([
+          testConnection(),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('MariaDB 連線超時 (15秒)')), 15000)
+          )
+        ]);
+      };
+
+      this.pool = await connectWithTimeout();
       
-      // 測試連接
-      const conn = await this.pool.getConnection();
-      await conn.release();
-      console.log('MariaDB 連接成功');
+      connectionLogger.connectionSuccess('MariaDB', this.config);
       await this.createSyncStatusTable();
       return this.pool;
     } catch (error) {
-      console.error('MariaDB 連接失敗:', error);
+      connectionLogger.connectionError('MariaDB', this.config, error);
+      
+      // 清理可能的部分連線
+      if (this.pool) {
+        try {
+          await this.pool.end();
+        } catch (cleanupError) {
+          connectionLogger.warn('清理 MariaDB 連線池時發生錯誤', { error: cleanupError.message });
+        }
+        this.pool = null;
+      }
+      
       throw error;
     }
   }
@@ -41,7 +82,7 @@ class MariaDBAdapter extends BaseAdapter {
     if (this.pool) {
       await this.pool.end();
       this.pool = null;
-      console.log('MariaDB 連接已關閉');
+      connectionLogger.disconnection('MariaDB', this.config);
     }
   }
 
