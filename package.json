@@ -23,7 +23,8 @@
     "sync:test": "node scripts/test-sync.js",
     "db:setup": "node scripts/setup-db.js",
     "check:connection": "node scripts/check-connection.js check",
-    "monitor:connection": "node scripts/check-connection.js monitor"
+    "monitor:connection": "node scripts/check-connection.js monitor",
+    "test:namedpipe": "node scripts/test-named-pipe.js"
   },
   "keywords": [
     "database",

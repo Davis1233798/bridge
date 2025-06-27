@@ -17,20 +17,45 @@ function buildDbConfig(type, prefix) {
   // 根據資料庫類型添加特定配置
   switch (type.toLowerCase()) {
     case 'mssql':
+      const useNamedPipe = process.env[`${prefix}_DB_USE_NAMED_PIPE`] === 'true';
+      const namedPipePath = process.env[`${prefix}_DB_NAMED_PIPE_PATH`];
+      
+      // 決定連線方式
+      let serverConfig;
+      if (useNamedPipe && namedPipePath) {
+        // Named Pipe 連線
+        serverConfig = {
+          server: namedPipePath, // 使用 Named Pipe 路徑
+          options: {
+            useNamedPipes: true,
+            // Named Pipe 連線通常不需要加密
+            encrypt: process.env[`${prefix}_DB_ENCRYPT`] === 'true' || false,
+            trustServerCertificate: process.env[`${prefix}_DB_TRUST_SERVER_CERTIFICATE`] === 'true' || true,
+          }
+        };
+      } else {
+        // 傳統 IP 連線
+        serverConfig = {
+          server: config.host,
+          port: config.port,
+          options: {
+            encrypt: process.env[`${prefix}_DB_ENCRYPT`] === 'true' || true,
+            trustServerCertificate: process.env[`${prefix}_DB_TRUST_SERVER_CERTIFICATE`] === 'true' || true,
+          }
+        };
+      }
+
       return {
         ...config,
-        server: config.host, // MSSQL 使用 server 而不是 host
-        options: {
-          encrypt: process.env.MSSQL_ENCRYPT === 'true' || true,
-          trustServerCertificate: process.env.MSSQL_TRUST_SERVER_CERTIFICATE === 'true' || true,
-        },
+        ...serverConfig,
+        connectionType: useNamedPipe ? 'namedpipe' : 'tcp',
         pool: {
-          max: parseInt(process.env.MSSQL_POOL_MAX) || 10,
-          min: parseInt(process.env.MSSQL_POOL_MIN) || 0,
-          idleTimeoutMillis: parseInt(process.env.MSSQL_POOL_IDLE_TIMEOUT) || 30000
+          max: parseInt(process.env[`${prefix}_DB_POOL_MAX`]) || 10,
+          min: parseInt(process.env[`${prefix}_DB_POOL_MIN`]) || 0,
+          idleTimeoutMillis: parseInt(process.env[`${prefix}_DB_POOL_IDLE_TIMEOUT`]) || 30000
         },
-        connectionTimeout: parseInt(process.env.MSSQL_CONNECTION_TIMEOUT) || 30000,
-        requestTimeout: parseInt(process.env.MSSQL_REQUEST_TIMEOUT) || 30000
+        connectionTimeout: parseInt(process.env[`${prefix}_DB_CONNECTION_TIMEOUT`]) || 30000,
+        requestTimeout: parseInt(process.env[`${prefix}_DB_REQUEST_TIMEOUT`]) || 30000
       };
 
     case 'mariadb':

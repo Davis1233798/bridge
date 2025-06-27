@@ -13,15 +13,26 @@ class MSSQLAdapter extends BaseAdapter {
 
   async connect() {
     try {
-      connectionLogger.info('嘗試連線到 MSSQL', {
-        host: this.config.server,
-        port: this.config.port,
-        database: this.config.database
-      });
+      // 判斷連線類型並記錄適當的資訊
+      const isNamedPipe = this.config.connectionType === 'namedpipe';
+      const connectionInfo = isNamedPipe ? 
+        {
+          type: 'Named Pipe',
+          server: this.config.server,
+          database: this.config.database
+        } : 
+        {
+          type: 'TCP/IP',
+          host: this.config.server,
+          port: this.config.port,
+          database: this.config.database
+        };
+
+      connectionLogger.info(`嘗試連線到 MSSQL (${connectionInfo.type})`, connectionInfo);
 
       // 增加連線超時處理
       const connectWithTimeout = async () => {
-        // 確保配置有適當的超時設定
+        // 準備連線配置
         const configWithTimeout = {
           ...this.config,
           connectionTimeout: this.config.connectionTimeout || 15000, // 15秒連線超時
@@ -32,21 +43,45 @@ class MSSQLAdapter extends BaseAdapter {
           }
         };
 
+        // Named Pipe 特殊處理
+        if (isNamedPipe) {
+          // 移除不適用於 Named Pipe 的設定
+          delete configWithTimeout.port;
+          delete configWithTimeout.host;
+          
+          // 確保 Named Pipe 選項正確設定
+          configWithTimeout.options = {
+            ...configWithTimeout.options,
+            useNamedPipes: true,
+            instanceName: '', // Named Pipe 不需要實例名稱
+          };
+          
+          connectionLogger.debug('Named Pipe 連線配置', {
+            server: configWithTimeout.server,
+            database: configWithTimeout.database,
+            useNamedPipes: true
+          });
+        }
+
         return await Promise.race([
           sql.connect(configWithTimeout),
           new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('MSSQL 連線超時 (20秒)')), 20000)
+            setTimeout(() => reject(new Error(`MSSQL ${connectionInfo.type} 連線超時 (20秒)`)), 20000)
           )
         ]);
       };
 
       this.pool = await connectWithTimeout();
       
-      connectionLogger.connectionSuccess('MSSQL', this.config);
+      connectionLogger.connectionSuccess(`MSSQL (${connectionInfo.type})`, {
+        ...this.config,
+        connectionType: this.config.connectionType
+      });
+      
       await this.createSyncStatusTable();
       return this.pool;
     } catch (error) {
-      connectionLogger.connectionError('MSSQL', this.config, error);
+      connectionLogger.connectionError(`MSSQL (${this.config.connectionType || 'TCP/IP'})`, this.config, error);
       
       // 清理可能的部分連線
       if (this.pool) {
